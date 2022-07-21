@@ -13,6 +13,8 @@ import sqlite3
     connection = sqlite3.connect('FIT_Ticketing.db')
     cursor = connection.cursor()
     cursor.execute('drop table Tickets')
+    connection.commit()
+    connection.close()
 
 '''
 
@@ -32,6 +34,8 @@ def make_database():
                    Description TEXT,
                    User_Note TEXT,
                    Admin_Note TEXT)""")
+    connection_2.commit()
+    connection_2.close()
 
 
 def pull_job():
@@ -68,14 +72,14 @@ def ticket_submit():
     insert_string1 = ("""INSERT INTO Tickets VALUES(
     'Ticket',
     {Cnt},
-    1,
+    {Cnt},
     "{User}",
     '{Date}',
-    '{Priority}',
     '1',
+    '{Priority}',
     '{Description}',
     '{User_Note}',
-    '')""".format(
+    ' ')""".format(
         Cnt='{:>6}'.format(count),
         User=os.getlogin(),
         Date=datetime.now().strftime('%m/%d/%Y %H:%M:%S'),
@@ -87,10 +91,8 @@ def ticket_submit():
     connection_Update.close()
     live_tree.insert(parent='', index='end', iid=str(count), text='Ticket', values=(
         count, count, os.getlogin(), datetime.now().strftime('%m/%d/%Y %H:%M:%S'), create_Description_Entry.get(),
-        priority_Options_inside.get(), '1', create_Note_Entry.get('1.0', 'end-1c')))
-    # live_tree.insert(parent='', index='end', iid=str(count), text='Parent', values=(count,
-    # os.getlogin(), str(datetime.now().strftime('%m/%d/%Y %H:%M:%S')), create_Priority_Entry.get(), '1',
-    # create_Note_Entry.get('1.0', 'end-1c'), '')) do some submit BS
+        priority_Options_inside.get(), '1', create_Note_Entry.get('1.0', 'end-1c'), ''))
+
     clear_create()
     count += 1
     create_Ticket_ID_entry['text'] = count
@@ -152,11 +154,9 @@ def update_record():
 
 
 def update_record_sub():
-    print(priority_Options_inside_Review.get())
     global count
     # grab selected row
     if review_Live_Pull_ID_Entry.get() == '' \
-            or priority_Options_inside_Review.get() == 'Please Select Priority' \
             or review_Live_Pull_Status_Entry.get() == '' \
             or review_Live_Pull_Admin_Notes_Entry.get() == '':
         error_input()
@@ -165,13 +165,14 @@ def update_record_sub():
     old_values = live_tree.item(selected, 'values')
     live_tree.insert(parent=old_values[0], index='end', iid=str(count), text='notes',
                      values=(count,
-                     review_Live_Pull_ID_Entry.get(),
-                     old_values[1],
-                     old_values[2],
-                     priority_Options_inside_Review.get(),
-                     review_Live_Pull_Status_Entry.get(),
-                     old_values[5],
-                     review_Live_Pull_Admin_Notes_Entry.get()))
+                             review_Live_Pull_ID_Entry.get(),
+                             old_values[2],
+                             datetime.now().strftime('%m/%d/%Y %H:%M:%S'),
+                             old_values[4],
+                             old_values[5],
+                             review_Live_Pull_Status_Entry.get(),
+                             old_values[7],
+                             review_Live_Pull_Admin_Notes_Entry.get()))
     connection_Update: Connection = sqlite3.connect('FIT_Ticketing.db')
     cursor_Update: Cursor = connection_Update.cursor()
     cursor_Update.execute(""" INSERT INTO Tickets Values(
@@ -187,7 +188,7 @@ def update_record_sub():
     '{Admin_Note}')
     """.format(
         Parent=old_values[0],
-        id=review_Live_Pull_ID_Entry.get(),
+        id=old_values[1],
         User=old_values[2],
         Date=datetime.now().strftime('%m/%d/%Y %H:%M:%S'),
         Priority=old_values[6],
@@ -205,28 +206,40 @@ def update_record_sub():
     return
 
 
-
 def mark_job_complete():
-    # todo: will have to be done in SQL
-    # todo: mark ALL jobs with same ID statuses to enumerated complete status
-    # sudo code
-    """
-    update Ticket
-    set status: 5
-    where id = selected.val[0]
-    :return:
-    """
+    if review_Live_Pull_ID_Entry.get() == '':
+        error_input()
+        return
+        # sudo code
+
     connection_Complete: Connection = sqlite3.connect('FIT_Ticketing.db')
     cursor_Complete: Cursor = connection_Complete.cursor()
-    cursor_Complete.execute('''
+    result = cursor_Complete.execute('''
     update Tickets
     set status = 5
     where id = {ID}
+    --select
+    --*
+    --from Tickets
+    --where id = {ID}
     '''.format(
         ID=review_Live_Pull_ID_Entry.get()
     ))
     connection_Complete.commit()
     connection_Complete.close()
+    selected = live_tree.focus()
+    old_values = live_tree.item(selected, 'values')
+    live_tree.item(selected, values=(
+        old_values[0],
+        old_values[1],
+        old_values[2],
+        old_values[3],
+        old_values[4],
+        old_values[5],
+        '5',
+        old_values[7],
+        old_values[8]))
+    clear_create()
     return
 
 
@@ -240,14 +253,47 @@ def close():
     root.destroy()
 
 
-# Binds tree view and auto populates entry fields
+# Binds tree view and auto-populates entry fields
 def clicker(e):
     select_record()
 
 
+def populate_trees():
+    for x in (live_tree, log_tree):
+        tree_To_Change = x
+        if tree_To_Change == live_tree:
+            to_Execute = 'select *,rowid from Tickets where status <> "5"'
+        elif tree_To_Change == log_tree:
+            to_Execute = 'select *,rowid from Tickets where status = "5"'
+        connection_populate = sqlite3.connect('FIT_Ticketing.db')
+        cursor_populate = connection_populate.cursor()
+        make_Tree_populate = cursor_populate.execute(to_Execute).fetchall()
+        tree_To_Change.tag_configure('evenrow', background="lightblue", foreground="white")
+        tree_To_Change.tag_configure('oddrow', background='lightgrey', foreground="white")
+        tree_To_Change.tag_configure('subrow', background='grey', foreground="white")
+        ctr = 0
+
+        for row in make_Tree_populate:
+            if ctr % 2 == 0:
+                clr = 'evenrow'
+            else:
+                clr = 'oddrow'
+            if row[0] == 'Ticket':
+                tree_To_Change.insert(parent='', index='end', iid=row[1], text=row[0],
+                                      values=(row[10], row[1], row[3], row[4], row[7], row[5], row[6], row[8], row[9]),
+                                      tags=(clr,))
+                ctr += 1
+            else:
+                tree_To_Change.insert(parent=row[0], index='end', iid=row[1], text='Note',
+                                      values=(row[10], row[0], row[3], row[4], row[7], row[5], row[6], row[8], row[9]),
+                                      tags='subrow', )
+        connection_populate.commit()
+        connection_populate.close()
+
+
 if __name__ == '__main__':
     if os.path.isfile('FIT_Ticketing.db'):
-        print("hi")
+        print("Program Starting")
     else:
         make_database()
     # Initial table connect to count row IDs
@@ -289,11 +335,14 @@ if __name__ == '__main__':
     review_Information_frame.pack(padx=5, pady=5, fill='both')
     review_Menu_frame = tk.Frame(review_Ticket, bg='grey')
     review_Menu_frame.pack(padx=5, pady=5, fill='both')
-
+    # Review Log Frames
+    review_Logs_frame = tk.Frame(review_logs, bg='white')
+    review_Logs_frame.pack(padx=5, pady=5, fill='both')
     # Scroll Bar configuration
     live_tree_scroll = ttk.Scrollbar(review_tree_frame)
     live_tree_scroll.pack(side='right', fill='y')
-
+    review_Logs_scroll = ttk.Scrollbar(review_Logs_frame)
+    review_Logs_scroll.pack(side='right', fill='y')
     # create Trees and style
     style = ttk.Style()
     style.theme_use('default')
@@ -304,12 +353,18 @@ if __name__ == '__main__':
                     fieldbackground='white'
                     )
     live_tree = ttk.Treeview(review_tree_frame, yscrollcommand=live_tree_scroll.set, height=25)
-    style.map('Treeview',background=[('selected', 'blue')])
+    style.map('Treeview', background=[('selected', 'blue')])
     live_tree['columns'] = (
         'Row_ID', 'ID', 'User', 'Date_Assigned', 'Description', 'Priority', 'Status', 'User_Notes', 'Admin_Notes')
     live_tree_scroll.config(command=live_tree.yview)
 
+    log_tree = ttk.Treeview(review_Logs_frame, yscrollcommand=review_Logs_scroll.set, height=30)
+    review_Logs_scroll.config(command=log_tree.yview)
+    log_tree['columns'] = (
+        'Row_ID', 'ID', 'User', 'Date_Assigned', 'Description', 'Priority', 'Status', 'User_Notes', 'Admin_Notes')
+
     # format tree to see what data is being pulled in
+    # Live Tree Format
     live_tree.column('#0', anchor='w', width=60, stretch=False)
     live_tree.column('User', anchor='w', width=65, stretch=False)
     live_tree.column('Row_ID', anchor='w', width=50, stretch=False)
@@ -320,7 +375,19 @@ if __name__ == '__main__':
     live_tree.column('Status', anchor='w', width=60, stretch=False)
     live_tree.column('User_Notes', anchor='w', width=200)
     live_tree.column('Admin_Notes', anchor='w', width=200)
+
+    log_tree.column('#0', anchor='w', width=60, stretch=False)
+    log_tree.column('User', anchor='w', width=65, stretch=False)
+    log_tree.column('Row_ID', anchor='w', width=50, stretch=False)
+    log_tree.column('ID', anchor='w', width=50, stretch=False)
+    log_tree.column('Date_Assigned', anchor='center', width=150, stretch=False)
+    log_tree.column('Description', anchor='center', width=175, stretch=False)
+    log_tree.column('Priority', anchor='w', width=60, stretch=False)
+    log_tree.column('Status', anchor='w', width=60, stretch=False)
+    log_tree.column('User_Notes', anchor='w', width=200)
+    log_tree.column('Admin_Notes', anchor='w', width=200)
     # Header name for Tree view
+    # Live Tree Heading Format
     live_tree.heading('#0', text='Parent', anchor='w')
     live_tree.heading('User', text='User', anchor='w')
     live_tree.heading('Row_ID', text='Row_ID', anchor='w')
@@ -331,56 +398,50 @@ if __name__ == '__main__':
     live_tree.heading('Status', text='Status', anchor='w')
     live_tree.heading('User_Notes', text='User Notes', anchor='w')
     live_tree.heading('Admin_Notes', text='Admin Notes', anchor='w')
+    # Live_tree Column Names
+    log_tree.heading('#0', text='Parent', anchor='w')
+    log_tree.heading('User', text='User', anchor='w')
+    log_tree.heading('Row_ID', text='Row_ID', anchor='w')
+    log_tree.heading('ID', text='ID', anchor='w')
+    log_tree.heading('Date_Assigned', text='Date Assigned', anchor='center')
+    log_tree.heading('Description', text='Description', anchor='w')
+    log_tree.heading('Priority', text='Priority', anchor='w')
+    log_tree.heading('Status', text='Status', anchor='w')
+    log_tree.heading('User_Notes', text='User Notes', anchor='w')
+    log_tree.heading('Admin_Notes', text='Admin Notes', anchor='w')
+    # non-function way of populating single table
+    # connection = sqlite3.connect('FIT_Ticketing.db')
+    # cursor = connection.cursor()
+    # make_Tree = cursor.execute('select *,rowid from Tickets where status <> "5"').fetchall()
+    # live_tree.tag_configure('evenrow', background="lightblue", foreground="white")
+    # live_tree.tag_configure('oddrow', background='lightgrey', foreground="white")
+    # live_tree.tag_configure('subrow', background='grey', foreground="white")
+    # ctr = 0
+    # clr = ''
+    # for row in make_Tree:
+    #     if ctr % 2 == 0:
+    #         clr = 'evenrow'
+    #     else:
+    #         clr = 'oddrow'
+    #     if row[0] == 'Ticket':
+    #         live_tree.insert(parent='', index='end', iid=row[1], text=row[0],
+    #                          values=(row[10], row[1], row[3], row[4], row[5], row[6], row[7], row[8], row[9]),
+    #                          tags=(clr,))
+    #         ctr += 1
+    #     else:
+    #         live_tree.insert(parent=row[0], index='end', iid=row[1], text='Note',
+    #                          values=(row[10], row[0], row[3], row[4], row[5], row[6], row[7], row[8], row[9]),
+    #                          tags='subrow', )
+    # connection.commit()
+    # connection.close()
     # Insert Database Data into Treeview
-    connection = sqlite3.connect('FIT_Ticketing.db')
-    cursor = connection.cursor()
-    make_Tree = cursor.execute('select *,rowid from Tickets where status <> "5"').fetchall()
-    live_tree.tag_configure('evenrow', background="lightblue", foreground="white")
-    live_tree.tag_configure('oddrow', background= 'lightgrey', foreground="white")
-    live_tree.tag_configure('subrow', background='grey', foreground="white")
-    ctr = 0
-    clr = ''
-    for row in make_Tree:
-        if ctr % 2 == 0:
-            clr = 'evenrow'
-        else:
-            clr = 'oddrow'
-        if row[0] == 'Ticket':
-            live_tree.insert(parent='', index='end', iid=row[1], text=row[0],
-                             values=(row[10], row[1], row[3], row[4], row[5], row[6], row[7], row[8], row[9]), tags=(clr, ))
-            ctr += 1
-        else:
-            live_tree.insert(parent=row[0], index='end', iid=row[1], text='Note',
-                             values=(row[10], row[0], row[3], row[4], row[5], row[6], row[7], row[8], row[9]), tags= 'subrow', )
-    connection.commit()
-    connection.close()
-    # Dummy data that was added
-    # live_tree.insert(parent='', index='end', iid='0', text='',
-    #                  values=('1', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='1', text='Parent', values=(
-    #     '1', 'spagheti', datetime.now().strftime('%m/%d/%Y %H:%M:%S'), '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='2', text='Parent',
-    #                  values=('2', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='2', index='end', iid='3', text='Parent',
-    #                  values=('3', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='4', text='Parent',
-    #                  values=('4', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='5', text='Parent',
-    #                  values=('5', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='6', text='Parent',
-    #                  values=('6', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='7', text='Parent',
-    #                  values=('7', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='8', text='Parent',
-    #                  values=('8', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='9', text='Parent',
-    #                  values=('9', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
-    # live_tree.insert(parent='', index='end', iid='10', text='Parent',
-    #                  values=('10', 'spagheti', '09/25/95', '2', '1', 'lasagna', 'broken'))
+    populate_trees()
     live_tree.pack(fill='both', padx=5, pady=5)
+    log_tree.pack(fill='both', padx=5, pady=5)
 
     # View_Logs = tk.Frame()
     # Options menus for Priority and Status
+
     priority_Options = ['1 -General Assistance',
                         '2 - Moderate',
                         '3 - Should probably try',
@@ -391,6 +452,7 @@ if __name__ == '__main__':
                       '4 - Difficulties, seeking escalation',
                       '5 - Job completed/Closed']
     # Home Screen Widgets
+
     home_To_Create_Button = tk.Button(main_menu, text='Create Ticket',
                                       width=25,
                                       height=2,
@@ -466,7 +528,8 @@ if __name__ == '__main__':
     # review_Live_Pull_Priority_Entry = tk.Entry(review_Information_frame, width=50)
     priority_Options_inside_Review = tkinter.StringVar(review_Information_frame)
     priority_Options_inside_Review.set('Please Select Priority')
-    Dropdown_Priority_Review = tkinter.OptionMenu(review_Information_frame, priority_Options_inside_Review, *priority_Options)
+    Dropdown_Priority_Review = tkinter.OptionMenu(review_Information_frame, priority_Options_inside_Review,
+                                                  *priority_Options)
     Dropdown_Priority_Review.config(width=43)
     review_Live_Pull_Admin_Notes_Label = tk.Label(review_Information_frame, text='Admin Notes', width=86, bg='grey')
     review_Live_Pull_Admin_Notes_Entry = tk.Entry(review_Information_frame, width=100)
